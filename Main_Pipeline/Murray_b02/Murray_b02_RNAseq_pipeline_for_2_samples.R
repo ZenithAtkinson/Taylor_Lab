@@ -1,5 +1,25 @@
 # scRNA-Seq Analysis Pipeline for a single dataset
 
+#If we load it in as embryo...
+embryo <- readRDS("~/Lab_Data/Original_Files/cedata-Global datasetdowncell-2019-10-22.rds")
+
+embryo@phenoData@data[1:5,1:15]
+#head(embryo@meta.data[, 1:15], 5)
+# The column we want is batch
+table(embryo@phenoData@data$batch)
+# We needto be able to split the 300, the 400, and the 500(1) and 500(2)
+W300 = embryo[,embryo@phenoData@data$batch == "Waterston_300_minutes"]
+
+# Subsetting for Waterson 400 minutes
+#W400 <- subset(embryo, subset = batch == "Waterson_400_minutes")
+# This gives us ~17000, which we can split into the different barcodes
+table(W300@phenoData@data$batch)
+head(W300@phenoData@data)
+
+W300$Sample = substring(W300@phenoData@data$Cell, 24, 24)
+
+table(W300$Sample)
+# Once we have these character strings, they have a constant length so we can extract out the .1.1 or whatever easily
 
 # Setting working directory to find the files
 setwd("~/Dropbox (VU Basic Sciences)/Miller Lab/10X Genomics/")
@@ -11,10 +31,10 @@ library(wbData)
 library(dplyr)
 
 # Getting a lookup table for switching between WBGeneIDs and gene names
-gids <- wb_load_gene_ids("WS281")
+gids <- wb_load_gene_ids("WS273") 
 
 # Loading in the raw gene by barcode matrix as a SingleCellExperiment object
-my_path <- "~/Dropbox (VU Basic Sciences)/Miller lab/scRNA_demonstration/7596-ST/7596-ST-1/raw_feature_bc_matrix"
+my_path <- "~/Lab_Data/Original_Files/Murray_b02/raw_feature_bc_matrix/"
 
 # choose a name for the SingleCellExperiment object that makes sense
 sce_walkthrough <- read10xCounts(my_path)
@@ -37,9 +57,10 @@ rownames(rowData(sce_walkthrough))
 # to the cell metadata table, including sex, genotype, experiment (strain info),
 # developmental stage
 
-colData(sce_walkthrough)$Sample <- "wt.3"
+colData(sce_walkthrough)$Batch <- "Murray_b02" # This can be the "batch" value (Murray_b02, 300, etc)
+colData(sce_walkthrough)$Sample <- "" # This denotes the lane/channel that it came from (specificall for 300, 400, 500)
 colData(sce_walkthrough)$Sex <- "Herm"
-colData(sce_walkthrough)$Stage <- "L2"
+colData(sce_walkthrough)$Stage <- "Embryo"
 colData(sce_walkthrough)$Genotype <- "wt"
 head(colData(sce_walkthrough))
 
@@ -56,18 +77,22 @@ bcrank <- barcodeRanks(counts(sce_walkthrough))
 
 ## 
 # highlight this whole section and use CMD+Enter to run all at once
-##
+options(bitmapType = "cairo")
+given_lower <- 500
+
+# Now try plotting again
 plot(bcrank$rank, bcrank$total, log = "xy", xlab = "Rank", ylab = "Total UMI count")
 o <- order(bcrank$rank)
 lines(bcrank$rank[o], bcrank$fitted[o], col = "red")
- abline(h=metadata(bcrank)$knee, col = "dodgerblue", lty=2)
- abline(h=metadata(bcrank)$inflection, col = "forestgreen", lty = 2)
- legend("bottomleft", lty = 2, col = c("dodgerblue", "forestgreen"),
-         legend = c("knee", "inflection"))
+abline(h = metadata(bcrank)$knee, col = "dodgerblue", lty = 2)
+abline(h = metadata(bcrank)$inflection, col = "forestgreen", lty = 2)
+abline(h = given_lower, col = "orange", lty = 2)
+legend("bottomleft", lty = 2, col = c("dodgerblue", "forestgreen", "blue"),
+       legend = c("knee", "inflection", "Given lower"))
 # # 
-
-
-
+# Knee and Inflec points (can also get given_lower? just set to what i want)
+knee_point <- metadata(bcrank)$knee
+inflect_point = metadata(bcrank)$inflection
 
 # Running emptydrops to distinguish cell-containing droplets from empty droplets
 # Using droplets with fewer than 50 UMIs as the background.
@@ -78,23 +103,23 @@ lines(bcrank$rank[o], bcrank$fitted[o], col = "red")
 # FDR = False Discovery Rate
 
 set.seed(100)
-emptydrops.out <- emptyDrops(counts(sce_walkthrough), lower = 50)
+emptydrops.out <- emptyDrops(counts(sce_walkthrough), lower = inflect_point)
 head(emptydrops.out)
+emptydrops.out
 summary(emptydrops.out$FDR, exclude = NULL)
 
 # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
 # 0.0     0.0     1.0     0.7     1.0     1.0  1143248 
 
 summary(emptydrops.out$FDR <= 0.01)
-
 #  Mode   FALSE    TRUE    NA's
-#logical  56508   18173 1143248
+#logical  19278   53054 456764
 
 head(emptydrops.out@metadata$ambient)
 
 # Generating a dataframe of the genes in ambient RNA from the Emptydrops calculation
 ambientRNA <- emptydrops.out@metadata$ambient
-dim(ambientRNA)
+dim(ambientRNA) #19962 1
 head(ambientRNA)
 
 # Create a dataframe object containing all ambient genes and their expression values
@@ -110,18 +135,16 @@ head(ambientRNA.df$gene_name,15)
 
 
 # top 15 genes here
-# "rrn-3.1" "flp-1"   "nlp-49"  "R102.2"  "nduo-6"  "atp-6"   "far-1"   "rpl-12"  "sbt-1"   "pdf-1"   "droe-4"  "ZK380.6" "rps-25" 
-# "rla-0"   "rpl-38"
+# "ctc-3" "nduo-6"   "ctc-2"  "atp-6"  "ctc-1"  "hil-7"   "his-24"  "ctb-1"   "nduo-1" 
+# "hil-2"   "ZK380.6" "T24B8.3" "crt-1"   "cav-1"   "pat-10" 
 
 # These are the genes that show up high on the list of ambient expression
-# rrn-3.1, mitochondrial genes (nduo-6, atp-6, MTCE.7, ctc-1, ctc-3),
-# some neuronal genes (R102.2, snet-1, sbt-1, flp-12, flp-14, flp-28)
 
 # Other diagnostic tests
 
 # T/F operator to determine which cells are real
 is.cell <- emptydrops.out$FDR <= 0.01
-is.cell
+#is.cell
 sum(is.cell, na.rm = TRUE)
 
 # 18173 claimed cells
@@ -129,8 +152,8 @@ sum(is.cell, na.rm = TRUE)
 table(Limited=emptydrops.out$Limited, Significant=is.cell)
 # Significant
 # Limited FALSE  TRUE
-# FALSE   56508   712
-# TRUE      0    17461
+# FALSE   19278   41359
+# TRUE      0    11695
 
 # Because Limited == TRUE and Significant == FALSE, it means the number of permutations 
 # was not limiting. -- Look for 0 in bottom left
@@ -164,10 +187,9 @@ sce_walkthrough <- sce_walkthrough[, which(is.cell), drop = F]
 sce_walkthrough
 
 # Generating a new filtered gene by barcode matrix for SoupX background RNA correction
-counts(sce_walkthrough)
+#counts(sce_walkthrough)
 sce_walkthrough.filt.counts <- counts(sce_walkthrough)
-
-sce_walkthrough.filt.counts
+#sce_walkthrough.filt.counts
 
 # Writing to a new folder for SoupX.
 # Generating new filtered matrix files for SoupX
@@ -180,19 +202,21 @@ sce_walkthrough.filt.counts
 # the new filtered_feature_bc_matrix folder. We will generate a new barcode file 
 # and a filtered matrix file from the cells detected by Emptydrops.
 
-
+# Need to now transfer the matrix.mtx and barcodes.tsv files from raw_feature_bc_matrix to the filtered_feature_bc_matrix
+  # mv ~/Lab_Data/Original_Files/Murray_b02/raw_feature_bc_matrix/matrix.mtx ~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/
+  # the .gz extension needs to be removed. Can be done with gzip -d *.gz (or does it? There is a gzip command below)
 library(Matrix)
 #counts
-writeMM(sce_walkthrough.filt.counts, "../scRNA_demonstration/7596-ST/SoupX/7596-ST-1/filtered_feature_bc_matrix/matrix.mtx")
-system("gzip ../scRNA_demonstration/7596-ST/SoupX/7596-ST-1/filtered_feature_bc_matrix/matrix.mtx")
-writeMM(sce_walkthrough.filt.counts, "../scRNA_demonstration/7596-ST/SoupX/7596-ST-1/filtered_feature_bc_matrix/matrix.mtx")
+writeMM(sce_walkthrough.filt.counts, "~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/matrix.mtx")
+system("gzip ~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/matrix.mtx")
+writeMM(sce_walkthrough.filt.counts, "~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/matrix.mtx")
 
 #barcodes
 fil.barcodes <- colnames(sce_walkthrough)
-write.table(fil.barcodes, "../scRNA_demonstration/7596-ST/SoupX/7596-ST-1/filtered_feature_bc_matrix/barcodes.tsv", 
+write.table(fil.barcodes, "~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/barcodes.tsv", 
             sep = "\t", quote = FALSE, col.names = FALSE, row.names = FALSE)
-system("gzip ../scRNA_demonstration/7596-ST/SoupX/7596-ST-1/filtered_feature_bc_matrix/barcodes.tsv")
-write.table(fil.barcodes, "../scRNA_demonstration/7596-ST/SoupX/7596-ST-1/filtered_feature_bc_matrix/barcodes.tsv", 
+system("gzip ~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/barcodes.tsv")
+write.table(fil.barcodes, "~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/barcodes.tsv", 
             sep = "\t", quote = FALSE, col.names = FALSE, row.names = FALSE)
 
 
@@ -228,6 +252,7 @@ sce_walkthrough.S <- ScaleData(sce_walkthrough.S)
 
 # the npcs term here determines how many PCs will be calculated. I like to include at 
 # least 100. The Elbow plot code below will help set this
+# AA: It seems this line freezes?
 sce_walkthrough.S <- RunPCA(sce_walkthrough.S, features = VariableFeatures(sce_walkthrough.S), npcs = 100)
 
 
