@@ -19,10 +19,12 @@ head(W300@phenoData@data)
 W300$Sample = substring(W300@phenoData@data$Cell, 24, 24)
 
 table(W300$Sample)
+W300_lane1 <- W300[, W300$Sample == "1"] # Selecting lane 1
+table(W300_lane1$Sample)
 # Once we have these character strings, they have a constant length so we can extract out the .1.1 or whatever easily
 
 # Setting working directory to find the files
-setwd("~/Dropbox (VU Basic Sciences)/Miller Lab/10X Genomics/")
+#setwd("~/Dropbox (VU Basic Sciences)/Miller Lab/10X Genomics/")
 
 # Loading in libraries
 library(DropletUtils)
@@ -34,7 +36,7 @@ library(dplyr)
 gids <- wb_load_gene_ids("WS273") 
 
 # Loading in the raw gene by barcode matrix as a SingleCellExperiment object
-my_path <- "~/Lab_Data/Original_Files/Murray_b02/raw_feature_bc_matrix/"
+my_path <- "~/Lab_Data/Original_Files/Waterston_300_min_10X_lane_1/raw_feature_bc_matrix/"
 
 # choose a name for the SingleCellExperiment object that makes sense
 sce_walkthrough <- read10xCounts(my_path)
@@ -57,8 +59,8 @@ rownames(rowData(sce_walkthrough))
 # to the cell metadata table, including sex, genotype, experiment (strain info),
 # developmental stage
 
-colData(sce_walkthrough)$Batch <- "Murray_b02" # This can be the "batch" value (Murray_b02, 300, etc)
-colData(sce_walkthrough)$Sample <- "" # This denotes the lane/channel that it came from (specificall for 300, 400, 500)
+colData(sce_walkthrough)$Batch <- "Waterson300" # This can be the "batch" value (Murray_b02, 300, etc)
+colData(sce_walkthrough)$Sample <- "1" # This denotes the lane/channel that it came from (specifically for 300, 400, 500)
 colData(sce_walkthrough)$Sex <- "Herm"
 colData(sce_walkthrough)$Stage <- "Embryo"
 colData(sce_walkthrough)$Genotype <- "wt"
@@ -87,12 +89,13 @@ lines(bcrank$rank[o], bcrank$fitted[o], col = "red")
 abline(h = metadata(bcrank)$knee, col = "dodgerblue", lty = 2)
 abline(h = metadata(bcrank)$inflection, col = "forestgreen", lty = 2)
 abline(h = given_lower, col = "orange", lty = 2)
-legend("bottomleft", lty = 2, col = c("dodgerblue", "forestgreen", "blue"),
+legend("bottomleft", lty = 2, col = c("dodgerblue", "forestgreen", "orange"),
        legend = c("knee", "inflection", "Given lower"))
 # # 
 # Knee and Inflec points (can also get given_lower? just set to what i want)
 knee_point <- metadata(bcrank)$knee
 inflect_point = metadata(bcrank)$inflection
+inflect_point
 
 # Running emptydrops to distinguish cell-containing droplets from empty droplets
 # Using droplets with fewer than 50 UMIs as the background.
@@ -103,7 +106,7 @@ inflect_point = metadata(bcrank)$inflection
 # FDR = False Discovery Rate
 
 set.seed(100)
-emptydrops.out <- emptyDrops(counts(sce_walkthrough), lower = inflect_point)
+emptydrops.out <- emptyDrops(counts(sce_walkthrough), lower = inflect_point) # Takes a while depending on size
 head(emptydrops.out)
 emptydrops.out
 summary(emptydrops.out$FDR, exclude = NULL)
@@ -152,8 +155,8 @@ sum(is.cell, na.rm = TRUE)
 table(Limited=emptydrops.out$Limited, Significant=is.cell)
 # Significant
 # Limited FALSE  TRUE
-# FALSE   19278   41359
-# TRUE      0    11695
+# FALSE   2277   2149
+# TRUE      0    5793
 
 # Because Limited == TRUE and Significant == FALSE, it means the number of permutations 
 # was not limiting. -- Look for 0 in bottom left
@@ -182,14 +185,55 @@ head(colData(sce_walkthrough))
 # We already ran this line, but we do it again to keep things ordered
 is.cell <- emptydrops.out$FDR <= 0.01
 
+
+# Load in their processed data
+# Extract the barcode
+barcodes_cedata = (pData(W300_lane1)$Cell)
+head(barcodes_cedata)
+# Now what do we keep from our data? We keep everything they kept, AND, using the statistics from empty drops, we want to keep that too.
+# Change our barcodes, 
+barcodes_taylor = sce_walkthrough$Barcode
+head(barcodes_taylor)
+# From sce_walkthrough$barcode and barcodes, we make them all the same name. Then, wee keep everything in 
+# sce_walkthrough that matches the barcodes in barcodes, PLUS, everything in sce_walktrhough that is already true.
+# Using this looup table, we 
+
+#barcodes_final = # everything they kept that it is our data + everything in our data that is true
+
+# Within sce_walkthrough, we need to add a column that is the list of barcodes THEY kept (barcodes_cedata)
+# Then, we just modify their data to look the same as our data (instead of 300.1.1, we have -1)
+  
+sce_walkthrough$matching_barcodes <- paste(substring(sce_walkthrough$Barcode, 1, 17), "300.1.1", sep = "")
+head(colData(sce_walkthrough))
+
+# This makes a col that has everything in matching_barcodes that is IN barcodes_cedata
+sce_walkthrough$in_processed <- ifelse(sce_walkthrough$matching_barcodes%in%barcodes_cedata, TRUE, FALSE)
+table(sce_walkthrough$in_processed)
+
+table(sce_walkthrough$FDR<=0.01, sce_walkthrough$in_processed, exclude = NULL)
+# Bottom row is everything that passed our empty drops
+# far right column is everything they kept
+# We want anything that is true under ANY of the conditions (3/4 sections)
+# Note: the bottom right is everything we thought is a cell that they didnt, and top right is stuff they had as a cell that we didnt
+
+# This variable is the same as sce_walkthrough, except we discard all the FALSE,FALSE values and NA values
+sce_walkthrough_filtered = table(sce_walkthrough)
+# One way to do this: make a new list that has the T and F values, and use that, but we want to also retain the 392 that is FALSE under the is.processed
+# BASICALLY: Keep everything that is true. discard everything that is FALSE, FALSE and NA values.
+
+backup_sce_walkthrough = sce_walkthrough
 # filter step
-sce_walkthrough <- sce_walkthrough[, which(is.cell), drop = F]
-sce_walkthrough
+#sce_walkthrough <- sce_walkthrough[, which(is.cell), drop = F]
+#sce_walkthrough
+
+# A: ADDED: Removing the .1 .1 from the waterson batch
+#colData(sce_walkthrough)$batch <- sub("\\.1\\.1$", "", colData(sce_walkthrough)$batch)
+#head((sce_walkthrough))
 
 # Generating a new filtered gene by barcode matrix for SoupX background RNA correction
-#counts(sce_walkthrough)
+#counts(sce_walkthrough)  UNCOMMENT THIS?
 sce_walkthrough.filt.counts <- counts(sce_walkthrough)
-#sce_walkthrough.filt.counts
+#sce_walkthrough.filt.counts  UNCOMENT THIS?
 
 # Writing to a new folder for SoupX.
 # Generating new filtered matrix files for SoupX
@@ -203,20 +247,20 @@ sce_walkthrough.filt.counts <- counts(sce_walkthrough)
 # and a filtered matrix file from the cells detected by Emptydrops.
 
 # Need to now transfer the matrix.mtx and barcodes.tsv files from raw_feature_bc_matrix to the filtered_feature_bc_matrix
-  # mv ~/Lab_Data/Original_Files/Murray_b02/raw_feature_bc_matrix/matrix.mtx ~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/
-  # the .gz extension needs to be removed. Can be done with gzip -d *.gz (or does it? There is a gzip command below)
+# mv ~/Lab_Data/Original_Files/Murray_b02/raw_feature_bc_matrix/matrix.mtx ~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/
+# the .gz extension needs to be removed. Can be done with gzip -d *.gz (or does it? There is a gzip command below)
 library(Matrix)
 #counts
-writeMM(sce_walkthrough.filt.counts, "~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/matrix.mtx")
-system("gzip ~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/matrix.mtx")
-writeMM(sce_walkthrough.filt.counts, "~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/matrix.mtx")
+writeMM(sce_walkthrough.filt.counts, "~/Lab_Data/SoupX/Waterson_300_lane1/filtered_feature_bc_matrix/matrix.mtx")
+system("gzip ~/Lab_Data/SoupX/Waterson_300_lane1/filtered_feature_bc_matrix/matrix.mtx")
+writeMM(sce_walkthrough.filt.counts, "~/Lab_Data/SoupX/Waterson_300_lane1/filtered_feature_bc_matrix/matrix.mtx")
 
 #barcodes
 fil.barcodes <- colnames(sce_walkthrough)
-write.table(fil.barcodes, "~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/barcodes.tsv", 
+write.table(fil.barcodes, "~/Lab_Data/SoupX/Waterson_300_lane1/filtered_feature_bc_matrix/barcodes.tsv", 
             sep = "\t", quote = FALSE, col.names = FALSE, row.names = FALSE)
-system("gzip ~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/barcodes.tsv")
-write.table(fil.barcodes, "~/Lab_Data/SoupX/Murray_b02/filtered_feature_bc_matrix/barcodes.tsv", 
+system("gzip ~/Lab_Data/SoupX/Waterson_300_lane1/filtered_feature_bc_matrix/barcodes.tsv")
+write.table(fil.barcodes, "~/Lab_Data/SoupX/Waterson_300_lane1/filtered_feature_bc_matrix/barcodes.tsv", 
             sep = "\t", quote = FALSE, col.names = FALSE, row.names = FALSE)
 
 
@@ -252,16 +296,15 @@ sce_walkthrough.S <- ScaleData(sce_walkthrough.S)
 
 # the npcs term here determines how many PCs will be calculated. I like to include at 
 # least 100. The Elbow plot code below will help set this
-# AA: It seems this line freezes?
-sce_walkthrough.S <- RunPCA(sce_walkthrough.S, features = VariableFeatures(sce_walkthrough.S), npcs = 100)
-
+# AA: Takes a long time
+sce_walkthrough.S <- RunPCA(sce_walkthrough.S, features = VariableFeatures(sce_walkthrough.S), npcs = 75)
 
 # We use the elbox plot of principle components (x-axis) and the variance they explain 
 # (y-axis) to pick the number of PCs (or dimensions) for UMAP. 
 
 # I pick 5 or so PCs after the curve has flattened. If the curve has not flattened,
 # you can rerun the RunPCA code and increase the npcs term.
-ElbowPlot(sce_walkthrough.S, ndims = 150)
+ElbowPlot(sce_walkthrough.S, ndims = 50)
 
 # Set the dims to the number of PCs selected from the ElbowPlot
 
@@ -277,8 +320,7 @@ sce_walkthrough.S <- RunUMAP(sce_walkthrough.S, dims = 1:75)
 DimPlot(sce_walkthrough.S, reduction = "umap")
 
 
-# Seurat identified 52 clusters. There is good separation between many clusters. 
-# 52
+# Seurat identified 43 clusters. There is bad separation between the clusters
 
 # You can check the expression of a gene on the UMAP by using FeaturePlot. 
 # It takes the WBGene id as input, here is sbt-1, a pan-neuronal gene
@@ -489,6 +531,7 @@ sce_corrected <- logNormCounts(sce_corrected)
 sce_corrected
 saveRDS(sce_corrected, "../scRNA_demonstration/7596-ST/7596-ST-1/121322_L2_herm_sce_SoupX_corrected.rds")
 
+# --------- A: END HERE -------------------------------------- 
 
 # Convert to a monocle3 object for annotations
 wt.cds <- new_cell_data_set(counts(sce_corrected),
@@ -532,9 +575,9 @@ plot_pc_variance_explained(wt.cds)
 
 # Now we will run UMAP.
 wt.cds <- reduce_dimension(wt.cds, 
-                         reduction_method = "UMAP",
-                         umap.min_dist = 0.3,
-                         umap.n_neighbors = 75)
+                           reduction_method = "UMAP",
+                           umap.min_dist = 0.3,
+                           umap.n_neighbors = 75)
 
 # Storing UMAP coordinates in the cell metadata for use with custom plots later.
 colData(wt.cds)$UMAP_1 <- reducedDims(wt.cds)[["UMAP"]][,1]
@@ -543,7 +586,7 @@ colData(wt.cds)$UMAP_2 <- reducedDims(wt.cds)[["UMAP"]][,2]
 # Identifying clusters. The "res" argument determines the resolution. Larger numbers will detect
 # more clusters. 
 wt.cds <- cluster_cells(wt.cds,
-                      res = 3e-4)
+                        res = 3e-4)
 
 # Plotting the cells, colored by cluster. You can color the cells in the plot by any column in 
 # the colData dataframe.
@@ -634,7 +677,7 @@ colData(wt.cds)$Tissue <- ifelse(
 
 # Identifying cluster-specific markers for each cluster to use for annotation,
 wt.cds.markers <- top_markers(wt.cds, genes_to_test_per_group = 35,
-                            marker_sig_test = F)
+                              marker_sig_test = F)
 head(wt.cds.markers)
 wt.cds.markers$gene_name <- i2s(wt.cds.markers$gene_id, gids)
 wt.cds.markers <- as.data.frame(wt.cds.markers)
