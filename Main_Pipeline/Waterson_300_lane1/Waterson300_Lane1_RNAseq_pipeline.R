@@ -96,6 +96,7 @@ legend("bottomleft", lty = 2, col = c("dodgerblue", "forestgreen", "orange"),
 knee_point <- metadata(bcrank)$knee
 inflect_point = metadata(bcrank)$inflection
 inflect_point
+# Inflection Point: 312
 
 # Running emptydrops to distinguish cell-containing droplets from empty droplets
 # Using droplets with fewer than 50 UMIs as the background.
@@ -112,17 +113,17 @@ emptydrops.out
 summary(emptydrops.out$FDR, exclude = NULL)
 
 # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
-# 0.0     0.0     1.0     0.7     1.0     1.0  1143248 
+# 0.0     0.0     0.0     0.1     0.0     1.0  556901 
 
 summary(emptydrops.out$FDR <= 0.01)
 #  Mode   FALSE    TRUE    NA's
-#logical  19278   53054 456764
+#logical  2277    7942  556901
 
 head(emptydrops.out@metadata$ambient)
 
 # Generating a dataframe of the genes in ambient RNA from the Emptydrops calculation
 ambientRNA <- emptydrops.out@metadata$ambient
-dim(ambientRNA) #19962 1
+dim(ambientRNA) #18259 1
 head(ambientRNA)
 
 # Create a dataframe object containing all ambient genes and their expression values
@@ -138,8 +139,8 @@ head(ambientRNA.df$gene_name,15)
 
 
 # top 15 genes here
-# "ctc-3" "nduo-6"   "ctc-2"  "atp-6"  "ctc-1"  "hil-7"   "his-24"  "ctb-1"   "nduo-1" 
-# "hil-2"   "ZK380.6" "T24B8.3" "crt-1"   "cav-1"   "pat-10" 
+# "his-24"   "hil-2"    "ttr-50"   "T05E11.9" "dpy-14"   "rpl-12"   "atp-6"    "hil-7"    "ctc-3"    "clec-266"
+# "lbp-1"    "pdi-2"    "nduo-6"   "ctc-2"    "ndk-1"
 
 # These are the genes that show up high on the list of ambient expression
 
@@ -150,7 +151,7 @@ is.cell <- emptydrops.out$FDR <= 0.01
 #is.cell
 sum(is.cell, na.rm = TRUE)
 
-# 18173 claimed cells
+# 7942 claimed cells
 
 table(Limited=emptydrops.out$Limited, Significant=is.cell)
 # Significant
@@ -167,7 +168,7 @@ table(Limited=emptydrops.out$Limited, Significant=is.cell)
 
 summary(emptydrops.out[which(emptydrops.out$FDR <= 0.01),]$Total)
 # Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-# 51    1165    2019    2781    3861   37890 
+# 313    1246    1808    2679    2932  118203
 
 # We can add the PValue and FDR for the calculation of whether a droplet was a cell or 
 # not to the cell metadata table
@@ -194,7 +195,7 @@ head(barcodes_cedata)
 # Change our barcodes, 
 barcodes_taylor = sce_walkthrough$Barcode
 head(barcodes_taylor)
-# From sce_walkthrough$barcode and barcodes, we make them all the same name. Then, wee keep everything in 
+# From sce_walkthrough$barcode and barcodes, we make them all the same name. Then, we keep everything in 
 # sce_walkthrough that matches the barcodes in barcodes, PLUS, everything in sce_walktrhough that is already true.
 # Using this looup table, we 
 
@@ -209,18 +210,85 @@ head(colData(sce_walkthrough))
 # This makes a col that has everything in matching_barcodes that is IN barcodes_cedata
 sce_walkthrough$in_processed <- ifelse(sce_walkthrough$matching_barcodes%in%barcodes_cedata, TRUE, FALSE)
 table(sce_walkthrough$in_processed)
+# FALSE    TRUE
+# 561472   5648
 
 table(sce_walkthrough$FDR<=0.01, sce_walkthrough$in_processed, exclude = NULL)
+
+#         FALSE   TRUE
+# FALSE   1885    392
+# TRUE    2686   5256
+# <NA>  556901      0
+
 # Bottom row is everything that passed our empty drops
 # far right column is everything they kept
 # We want anything that is true under ANY of the conditions (3/4 sections)
 # Note: the bottom right is everything we thought is a cell that they didnt, and top right is stuff they had as a cell that we didnt
 
+head(colData(sce_walkthrough))
+
+#Step by step:
+# Put the head(colData(sce_walkthrough)) data into gpt
+  # give it the table that is printed out
+# Also put the info from table(sce_walkthrough$FDR<=0.01, sce_walkthrough$in_processed, exclude = NULL) data into gpt
+  # give it the table that is printed out
+# ask if how to then make a new list that has everything that is TRUE from doing this command 
+  # anything that has any true. Basically, just ommit FALSE, FALSE
+  # There are 392 values in the "in_processed" column that we still want to keep.
+# We also want to remove all the values that are NA in the table
+# Make a new column called "filtered_barcodes", and put all the barcodes that fit this in there
+
 # This variable is the same as sce_walkthrough, except we discard all the FALSE,FALSE values and NA values
-sce_walkthrough_filtered = table(sce_walkthrough)
+sce_walkthrough_filtered = table(sce_walkthrough) #unfinisehd
 # One way to do this: make a new list that has the T and F values, and use that, but we want to also retain the 392 that is FALSE under the is.processed
 # BASICALLY: Keep everything that is true. discard everything that is FALSE, FALSE and NA values.
 
+#SOLUTION?
+# Create the logical vector for filtering
+is.keep <- (!is.na(sce_walkthrough$FDR) & sce_walkthrough$FDR <= 0.01) | sce_walkthrough$in_processed
+
+# Create the 'filtered_barcodes' column
+sce_walkthrough$filtered_barcodes <- NA_character_ # for NA vals
+sce_walkthrough$filtered_barcodes[is.keep] <- sce_walkthrough$Barcode[is.keep]
+
+# Create the filtered SingleCellExperiment object
+sce_filtered <- sce_walkthrough[, is.keep]
+
+# dimension verification
+dim(sce_filtered)
+# num of features - Number of Cells
+# [1] 46911  -  8334
+
+head(colData(sce_filtered))
+# Should return FALSE if everything is NA
+any(is.na(sce_filtered$filtered_barcodes))
+
+
+
+# AT THIS POINT: We need to take all of their metadata present in head(pData(W300_lane1)) (like cell.type, cell.subtype, plot.cell.type), and 
+# we combine those meta data columns with our new filtered data. But, since we have barcodes that we kept that they didnt and therefore it has no metadata,
+# those row values in those columns will just be NA.
+
+head(pData(W300_lane1))
+library(dplyr)
+
+# Convert colData to a data frame
+coldata_sce_filtered <- as.data.frame(colData(sce_filtered))
+coldata_sce_filtered$Barcode <- rownames(coldata_sce_filtered)
+
+# Perform the left join
+merged_metadata <- left_join(
+  coldata_sce_filtered,
+  metadata_W300_lane1,
+  by = c("matching_barcodes" = "Cell")
+)
+
+# Set rownames to 'Barcode' column
+rownames(merged_metadata) <- merged_metadata$Barcode
+
+# Convert to DataFrame and update colData
+colData_new <- as(merged_metadata, "DataFrame")
+colData(sce_filtered) <- colData_new
 backup_sce_walkthrough = sce_walkthrough
 # filter step
 #sce_walkthrough <- sce_walkthrough[, which(is.cell), drop = F]
